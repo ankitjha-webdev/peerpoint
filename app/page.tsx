@@ -1,24 +1,62 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Video, VideoOff, Mic, MicOff, PhoneOff, Copy, Users, Sparkles } from "lucide-react"
+import { Video, VideoOff, Mic, MicOff, PhoneOff, Copy, Users, Sparkles, AlertCircle } from "lucide-react"
+import { useWebRTC } from "@/hooks/use-webrtc"
+import { useToast } from "@/hooks/use-toast"
 
 export default function PeerCallApp() {
   const [isInCall, setIsInCall] = useState(false)
   const [roomId, setRoomId] = useState("")
   const [isVideoEnabled, setIsVideoEnabled] = useState(true)
   const [isAudioEnabled, setIsAudioEnabled] = useState(true)
-  const [connectionStatus, setConnectionStatus] = useState<"disconnected" | "connecting" | "connected">("disconnected")
-  const [remoteConnected, setRemoteConnected] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
+  const { toast } = useToast()
+
+  // WebRTC hook
+  const {
+    isConnected,
+    connectionState,
+    remoteUsers,
+    socketConnected,
+    startCall,
+    cleanup,
+  } = useWebRTC({
+    roomId,
+    onRemoteStream: (stream) => {
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = stream
+      }
+    },
+    onConnectionStateChange: (state) => {
+      console.log('Connection state changed:', state)
+      if (state === 'failed' || state === 'disconnected') {
+        setError('Connection lost. Please try again.')
+      }
+    },
+    onUserJoined: (userId) => {
+      toast({
+        title: "Peer joined",
+        description: "Another user has joined the call",
+      })
+    },
+    onUserLeft: (userId) => {
+      toast({
+        title: "Peer left",
+        description: "The other user has left the call",
+        variant: "destructive",
+      })
+    },
+  })
 
   // Generate random room ID
   const generateRoomId = () => {
@@ -27,7 +65,15 @@ export default function PeerCallApp() {
 
   // Copy room ID to clipboard
   const copyRoomId = async () => {
-    await navigator.clipboard.writeText(roomId)
+    try {
+      await navigator.clipboard.writeText(roomId)
+      toast({
+        title: "Room ID copied",
+        description: "Room ID has been copied to clipboard",
+      })
+    } catch (error) {
+      console.error('Failed to copy room ID:', error)
+    }
   }
 
   // Start local video stream
@@ -46,99 +92,54 @@ export default function PeerCallApp() {
       return stream
     } catch (error) {
       console.error("Error accessing media devices:", error)
+      setError("Failed to access camera/microphone. Please check permissions.")
       return null
     }
   }
 
-  // Create peer connection
-  const createPeerConnection = () => {
-    const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    })
-
-    pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        // In a real app, send this to the other peer via signaling server
-        console.log("ICE candidate:", event.candidate)
-      }
-    }
-
-    pc.ontrack = (event) => {
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0]
-        setRemoteConnected(true)
-      }
-    }
-
-    pc.onconnectionstatechange = () => {
-      setConnectionStatus(pc.connectionState as any)
-    }
-
-    return pc
-  }
-
-  // Start call
-  const startCall = async () => {
+  // Start new call
+  const startNewCall = async () => {
+    setIsLoading(true)
+    setError(null)
+    
     const newRoomId = generateRoomId()
     setRoomId(newRoomId)
     setIsInCall(true)
-    setConnectionStatus("connecting")
 
     const stream = await startLocalStream()
     if (stream) {
-      const pc = createPeerConnection()
-      peerConnectionRef.current = pc
-
-      stream.getTracks().forEach((track) => {
-        pc.addTrack(track, stream)
-      })
-
-      // Simulate connection after 2 seconds for demo
-      setTimeout(() => {
-        setConnectionStatus("connected")
-        setRemoteConnected(true)
-      }, 2000)
+      await startCall(stream)
+    } else {
+      setIsInCall(false)
     }
+    
+    setIsLoading(false)
   }
 
   // Join call
   const joinCall = async () => {
     if (!roomId.trim()) return
 
+    setIsLoading(true)
+    setError(null)
     setIsInCall(true)
-    setConnectionStatus("connecting")
 
     const stream = await startLocalStream()
     if (stream) {
-      const pc = createPeerConnection()
-      peerConnectionRef.current = pc
-
-      stream.getTracks().forEach((track) => {
-        pc.addTrack(track, stream)
-      })
-
-      // Simulate connection after 2 seconds for demo
-      setTimeout(() => {
-        setConnectionStatus("connected")
-        setRemoteConnected(true)
-      }, 2000)
+      await startCall(stream)
+    } else {
+      setIsInCall(false)
     }
+    
+    setIsLoading(false)
   }
 
   // End call
   const endCall = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach((track) => track.stop())
-    }
-
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close()
-    }
-
+    cleanup()
     setIsInCall(false)
-    setConnectionStatus("disconnected")
-    setRemoteConnected(false)
     setRoomId("")
+    setError(null)
   }
 
   // Toggle video
@@ -163,6 +164,13 @@ export default function PeerCallApp() {
     }
   }
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      cleanup()
+    }
+  }, [cleanup])
+
   if (!isInCall) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center p-4">
@@ -180,11 +188,12 @@ export default function PeerCallApp() {
 
             <div className="space-y-6">
               <Button
-                onClick={startCall}
-                className="w-full h-12 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold rounded-xl transition-all duration-200 transform hover:scale-105"
+                onClick={startNewCall}
+                disabled={isLoading}
+                className="w-full h-12 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-semibold rounded-xl transition-all duration-200 transform hover:scale-105 disabled:opacity-50"
               >
                 <Video className="w-5 h-5 mr-2" />
-                Start New Call
+                {isLoading ? "Starting..." : "Start New Call"}
               </Button>
 
               <div className="relative">
@@ -205,11 +214,11 @@ export default function PeerCallApp() {
                 />
                 <Button
                   onClick={joinCall}
-                  disabled={!roomId.trim()}
-                  className="w-full h-12 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl transition-all duration-200"
+                  disabled={!roomId.trim() || isLoading}
+                  className="w-full h-12 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl transition-all duration-200 disabled:opacity-50"
                 >
                   <Users className="w-5 h-5 mr-2" />
-                  Join Call
+                  {isLoading ? "Joining..." : "Join Call"}
                 </Button>
               </div>
             </div>
@@ -224,9 +233,33 @@ export default function PeerCallApp() {
       {/* Header */}
       <div className="flex items-center justify-between p-4 bg-black/20 backdrop-blur-sm">
         <div className="flex items-center space-x-3">
-          <Badge variant="secondary" className="bg-green-500/20 text-green-400 border-green-500/30">
-            <div className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
-            {connectionStatus === "connected" ? "Connected" : "Connecting..."}
+          <Badge 
+            variant="secondary" 
+            className={`${
+              socketConnected 
+                ? "bg-green-500/20 text-green-400 border-green-500/30" 
+                : "bg-red-500/20 text-red-400 border-red-500/30"
+            }`}
+          >
+            <div className={`w-2 h-2 rounded-full mr-2 animate-pulse ${
+              socketConnected ? "bg-green-400" : "bg-red-400"
+            }`}></div>
+            {socketConnected ? "Socket Connected" : "Socket Disconnected"}
+          </Badge>
+          <Badge 
+            variant="secondary" 
+            className={`${
+              connectionState === "connected" 
+                ? "bg-green-500/20 text-green-400 border-green-500/30" 
+                : "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
+            }`}
+          >
+            <div className={`w-2 h-2 rounded-full mr-2 animate-pulse ${
+              connectionState === "connected" ? "bg-green-400" : "bg-yellow-400"
+            }`}></div>
+            {connectionState === "connected" ? "Peer Connected" : 
+             connectionState === "connecting" ? "Connecting..." :
+             connectionState === "new" ? "Initializing..." : connectionState}
           </Badge>
           {roomId && (
             <div className="flex items-center space-x-2">
@@ -244,8 +277,22 @@ export default function PeerCallApp() {
               </Button>
             </div>
           )}
+          {remoteUsers.length > 0 && (
+            <Badge variant="outline" className="text-white border-white/30">
+              <Users className="w-3 h-3 mr-1" />
+              {remoteUsers.length} peer{remoteUsers.length > 1 ? 's' : ''}
+            </Badge>
+          )}
         </div>
       </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="mx-4 mt-2 p-3 bg-red-500/20 border border-red-500/30 rounded-lg flex items-center space-x-2">
+          <AlertCircle className="w-4 h-4 text-red-400" />
+          <span className="text-red-400 text-sm">{error}</span>
+        </div>
+      )}
 
       {/* Video Area */}
       <div className="flex-1 relative p-4">
@@ -253,13 +300,14 @@ export default function PeerCallApp() {
           {/* Remote Video */}
           <div className="relative bg-gray-800 rounded-2xl overflow-hidden shadow-2xl">
             <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
-            {!remoteConnected && (
+            {!isConnected && (
               <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-purple-900/50 to-blue-900/50 backdrop-blur-sm">
                 <div className="text-center">
                   <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4">
                     <Users className="w-8 h-8 text-white/70" />
                   </div>
                   <p className="text-white/70">Waiting for peer to join...</p>
+                  <p className="text-white/50 text-sm mt-2">Share the room ID with someone to start talking</p>
                 </div>
               </div>
             )}
@@ -319,3 +367,4 @@ export default function PeerCallApp() {
     </div>
   )
 }
+
