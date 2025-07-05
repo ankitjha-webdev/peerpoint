@@ -9,6 +9,15 @@ interface UseWebRTCProps {
   onUserLeft?: (userId: string) => void
 }
 
+// Get Socket.IO server URL from environment or default to localhost
+const getSocketUrl = () => {
+  if (typeof window !== 'undefined') {
+    // In browser, check for environment variable or use localhost
+    return process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001'
+  }
+  return 'http://localhost:3001'
+}
+
 export function useWebRTC({
   roomId,
   onRemoteStream,
@@ -29,8 +38,10 @@ export function useWebRTC({
   const initializeSocket = useCallback(() => {
     if (socketRef.current) return
 
-    console.log('🔌 Connecting to Socket.IO server...')
-    const socket = io('http://localhost:3001', {
+    const socketUrl = getSocketUrl()
+    console.log('🔌 Connecting to Socket.IO server at:', socketUrl)
+    
+    const socket = io(socketUrl, {
       transports: ['websocket', 'polling'],
       timeout: 20000,
     })
@@ -47,6 +58,11 @@ export function useWebRTC({
 
     socket.on('disconnect', () => {
       console.log('❌ Disconnected from Socket.IO server')
+      setSocketConnected(false)
+    })
+
+    socket.on('connect_error', (error) => {
+      console.error('❌ Socket.IO connection error:', error)
       setSocketConnected(false)
     })
 

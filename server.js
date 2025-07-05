@@ -1,13 +1,18 @@
 const { Server } = require("socket.io");
 
-const io = new Server(3001, {
+const PORT = process.env.PORT || 3001;
+const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:3000";
+
+const io = new Server(PORT, {
   cors: {
-    origin: "http://localhost:3000",
-    methods: ["GET", "POST"]
+    origin: CLIENT_URL,
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
-console.log("🚀 Socket.IO server starting on port 3001...");
+console.log("🚀 Socket.IO server starting on port", PORT);
+console.log("🌐 CORS enabled for", CLIENT_URL);
 
 io.on("connection", (socket) => {
   console.log(`✅ Client connected: ${socket.id}`);
@@ -67,5 +72,4 @@ io.on("connection", (socket) => {
 });
 
 console.log("✅ Socket.IO server is ready!");
-console.log("🌐 CORS enabled for http://localhost:3000");
 console.log("📡 Waiting for connections..."); 
