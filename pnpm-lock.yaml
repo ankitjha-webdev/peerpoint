@@ -107,6 +107,9 @@ dependencies:
   embla-carousel-react:
     specifier: latest
     version: 8.6.0(react@19.1.0)
+  howler:
+    specifier: ^2.2.4
+    version: 2.2.4
   input-otp:
     specifier: latest
     version: 1.4.2(react-dom@19.1.0)(react@19.1.0)
@@ -2395,6 +2398,10 @@ packages:
     engines: {node: '>= 0.4'}
     dependencies:
       function-bind: 1.1.2
+
+  /howler@2.2.4:
+    resolution: {integrity: sha512-iARIBPgcQrwtEr+tALF+rapJ8qSc+Set2GJQl7xT1MQzWaVkFebdJhR3alVlSiUf5U7nAANKuj3aWpwerocD5w==}
+    dev: false
 
   /immer@10.1.1:
     resolution: {integrity: sha512-s2MPrmjovJcoMaHtx6K11Ra7oD05NT97w1IC5zpMkT6Atjr7H8LjaDd81iIxUYpMKSRRNMJE703M1Fhr/TctHw==}

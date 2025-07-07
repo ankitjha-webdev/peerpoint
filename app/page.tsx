@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Video, VideoOff, Mic, MicOff, PhoneOff, Copy, Users, Sparkles, AlertCircle } from "lucide-react"
 import { useWebRTC } from "@/hooks/use-webrtc"
 import { useToast } from "@/hooks/use-toast"
+import { Howl } from 'howler'
 
 export default function PeerCallApp() {
   const [isInCall, setIsInCall] = useState(false)
@@ -106,6 +107,11 @@ export default function PeerCallApp() {
     }
   }
 
+  // Utility to play a sound
+  const playSound = (src: string) => {
+    new Howl({ src: [src], volume: 1.0 }).play()
+  }
+
   // Start new call
   const startNewCall = async () => {
     setIsLoading(true)
@@ -115,6 +121,7 @@ export default function PeerCallApp() {
     const newRoomId = generateRoomId()
     setRoomId(newRoomId)
     setIsInCall(true)
+    playSound('/join.mp3')
 
     const stream = await startLocalStream()
     if (stream) {
@@ -133,6 +140,7 @@ export default function PeerCallApp() {
     setError(null)
     setRoomFull(false)
     setIsInCall(true)
+    playSound('/join.mp3')
 
     const stream = await startLocalStream()
     if (stream) {
@@ -152,6 +160,7 @@ export default function PeerCallApp() {
     setIsInCall(false)
     setRoomId("")
     setError(null)
+    playSound('/leave.mp3')
   }
 
   // Toggle video
