@@ -3,7 +3,7 @@ import './globals.css'
 import { Toaster } from '@/components/ui/toaster'
 
 export const metadata: Metadata = {
-  title: 'PeerTalk - Real-time Video Calls',
+  title: 'PeerPoint - Real-time Video Calls',
   description: 'Connect instantly with anyone, anywhere using peer-to-peer video calls',
   generator: 'v0.dev',
 }

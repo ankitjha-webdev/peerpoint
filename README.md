@@ -1,4 +1,4 @@
-# PeerTalk - Real-time Video Calls with WebRTC
+# PeerPoint - Real-time Video Calls with WebRTC
 
 A modern peer-to-peer video calling application built with Next.js, WebRTC, and Socket.IO.
 

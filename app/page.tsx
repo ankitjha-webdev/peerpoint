@@ -182,7 +182,7 @@ export default function PeerCallApp() {
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 mb-4">
                 <Sparkles className="w-8 h-8 text-white" />
               </div>
-              <h1 className="text-3xl font-bold text-white mb-2">PeerTalk</h1>
+              <h1 className="text-3xl font-bold text-white mb-2">PeerPoint</h1>
               <p className="text-white/70">Connect instantly with anyone, anywhere</p>
             </div>
 
