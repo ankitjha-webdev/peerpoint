@@ -16,6 +16,8 @@ export default function PeerCallApp() {
   const [isAudioEnabled, setIsAudioEnabled] = useState(true)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [roomFull, setRoomFull] = useState(false)
+  const [lastFullRoomId, setLastFullRoomId] = useState<string | null>(null)
 
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
@@ -30,6 +32,7 @@ export default function PeerCallApp() {
     socketConnected,
     startCall,
     cleanup,
+    leaveRoom,
   } = useWebRTC({
     roomId,
     onRemoteStream: (stream) => {
@@ -55,6 +58,12 @@ export default function PeerCallApp() {
         description: "The other user has left the call",
         variant: "destructive",
       })
+    },
+    onRoomFull: (message) => {
+      setError(message)
+      setIsInCall(false)
+      setRoomFull(true)
+      setLastFullRoomId(roomId)
     },
   })
 
@@ -101,6 +110,7 @@ export default function PeerCallApp() {
   const startNewCall = async () => {
     setIsLoading(true)
     setError(null)
+    setRoomFull(false)
     
     const newRoomId = generateRoomId()
     setRoomId(newRoomId)
@@ -118,10 +128,10 @@ export default function PeerCallApp() {
 
   // Join call
   const joinCall = async () => {
-    if (!roomId.trim()) return
-
+    if (!roomId.trim() || roomFull) return
     setIsLoading(true)
     setError(null)
+    setRoomFull(false)
     setIsInCall(true)
 
     const stream = await startLocalStream()
@@ -136,6 +146,8 @@ export default function PeerCallApp() {
 
   // End call
   const endCall = () => {
+    // Leave room first, then cleanup
+    leaveRoom()
     cleanup()
     setIsInCall(false)
     setRoomId("")
@@ -167,16 +179,64 @@ export default function PeerCallApp() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      leaveRoom()
       cleanup()
     }
-  }, [cleanup])
+  }, [cleanup, leaveRoom])
+
+  // When user changes roomId input, clear roomFull and error if new value is different from lastFullRoomId
+  const handleRoomIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newRoomId = e.target.value.toUpperCase()
+    setRoomId(newRoomId)
+    if (lastFullRoomId && newRoomId !== lastFullRoomId) {
+      setRoomFull(false)
+      setError(null)
+      setLastFullRoomId(null)
+    }
+  }
+
+  // Auto-dismiss error after 4 seconds (do NOT clear roomFull here)
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError(null)
+      }, 4000)
+      return () => clearTimeout(timer)
+    }
+  }, [error])
+
+  // Keyboard shortcuts for mute/unmute and camera on/off
+  useEffect(() => {
+    if (!isInCall) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault()
+        toggleAudio()
+      }
+      if (e.key === 'e' || e.key === 'E') {
+        e.preventDefault()
+        toggleVideo()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isInCall, toggleAudio, toggleVideo])
 
   if (!isInCall) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 flex items-center justify-center p-4 relative">
         <div className="absolute inset-0 bg-[url('/placeholder.svg?height=1080&width=1920')] opacity-10 bg-cover bg-center"></div>
 
-        <Card className="w-full max-w-md backdrop-blur-xl bg-white/10 border-white/20 shadow-2xl">
+        {/* Error Display */}
+        {error && (
+          <div className="fixed top-8 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-md p-3 bg-[#e53935] border border-[#b71c1c] rounded-lg flex items-center space-x-2 shadow-lg text-white font-semibold">
+            <AlertCircle className="w-4 h-4 text-white" />
+            <span className="text-sm">{error}</span>
+          </div>
+        )}
+
+        <Card className="w-full max-w-md backdrop-blur-xl bg-white/10 border-white/20 shadow-2xl mt-8">
           <CardContent className="p-8">
             <div className="text-center mb-8">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 mb-4">
@@ -209,12 +269,12 @@ export default function PeerCallApp() {
                 <Input
                   placeholder="Enter Room ID"
                   value={roomId}
-                  onChange={(e) => setRoomId(e.target.value.toUpperCase())}
+                  onChange={handleRoomIdChange}
                   className="h-12 bg-white/10 border-white/20 text-white placeholder:text-white/50 rounded-xl"
                 />
                 <Button
                   onClick={joinCall}
-                  disabled={!roomId.trim() || isLoading}
+                  disabled={!roomId.trim() || isLoading || (roomFull && roomId === lastFullRoomId)}
                   className="w-full h-12 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl transition-all duration-200 disabled:opacity-50"
                 >
                   <Users className="w-5 h-5 mr-2" />

@@ -7,6 +7,8 @@ interface UseWebRTCProps {
   onConnectionStateChange?: (state: RTCPeerConnectionState) => void
   onUserJoined?: (userId: string) => void
   onUserLeft?: (userId: string) => void
+  onError?: (message: string) => void
+  onRoomFull?: (message: string) => void
 }
 
 // Get Socket.IO server URL from environment or default to localhost
@@ -24,6 +26,8 @@ export function useWebRTC({
   onConnectionStateChange,
   onUserJoined,
   onUserLeft,
+  onError,
+  onRoomFull,
 }: UseWebRTCProps) {
   const [isConnected, setIsConnected] = useState(false)
   const [connectionState, setConnectionState] = useState<RTCPeerConnectionState>('new')
@@ -33,6 +37,7 @@ export function useWebRTC({
   const socketRef = useRef<Socket | null>(null)
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
+  const currentRoomRef = useRef<string | null>(null)
 
   // Initialize Socket.IO connection
   const initializeSocket = useCallback(() => {
@@ -51,7 +56,8 @@ export function useWebRTC({
       setSocketConnected(true)
       
       // Join the room immediately after connection
-      if (roomId) {
+      if (roomId && currentRoomRef.current !== roomId) {
+        currentRoomRef.current = roomId
         socket.emit('join-room', roomId)
       }
     })
@@ -59,6 +65,7 @@ export function useWebRTC({
     socket.on('disconnect', () => {
       console.log('❌ Disconnected from Socket.IO server')
       setSocketConnected(false)
+      currentRoomRef.current = null
     })
 
     socket.on('connect_error', (error) => {
@@ -68,7 +75,11 @@ export function useWebRTC({
 
     socket.on('user-joined', ({ userId }: { userId: string }) => {
       console.log('👋 User joined:', userId)
-      setRemoteUsers(prev => [...prev, userId])
+      setRemoteUsers(prev => {
+        // Prevent duplicate users
+        if (prev.includes(userId)) return prev
+        return [...prev, userId]
+      })
       onUserJoined?.(userId)
     })
 
@@ -123,8 +134,38 @@ export function useWebRTC({
       }
     })
 
+    socket.on('room-full', ({ message }) => {
+      console.error(message);
+      if (typeof onRoomFull === 'function') onRoomFull(message);
+    })
+
     socketRef.current = socket
-  }, [roomId, onUserJoined, onUserLeft])
+  }, [roomId, onUserJoined, onUserLeft, onError, onRoomFull])
+
+  // Join room function
+  const joinRoom = useCallback((newRoomId: string) => {
+    if (!socketRef.current || !socketConnected) {
+      console.log('⚠️ Socket not connected, cannot join room')
+      return
+    }
+
+    // If already in the same room, don't join again
+    if (currentRoomRef.current === newRoomId) {
+      console.log('⚠️ Already in room:', newRoomId)
+      return
+    }
+
+    // Leave current room if different
+    if (currentRoomRef.current && currentRoomRef.current !== newRoomId) {
+      console.log('🚪 Leaving current room:', currentRoomRef.current)
+      socketRef.current.emit('leave-room', currentRoomRef.current)
+    }
+
+    // Join new room
+    console.log('🚪 Joining room:', newRoomId)
+    currentRoomRef.current = newRoomId
+    socketRef.current.emit('join-room', newRoomId)
+  }, [socketConnected])
 
   // Create and configure peer connection
   const createPeerConnection = useCallback(() => {
@@ -185,9 +226,7 @@ export function useWebRTC({
     })
 
     // Join the room via Socket.IO
-    if (socketRef.current && socketConnected) {
-      socketRef.current.emit('join-room', roomId)
-    }
+    joinRoom(roomId)
 
     // If we're the first user, create an offer after a short delay
     setTimeout(async () => {
@@ -207,11 +246,23 @@ export function useWebRTC({
         }
       }
     }, 1000)
-  }, [createPeerConnection, remoteUsers.length, roomId, socketConnected])
+  }, [createPeerConnection, remoteUsers.length, roomId, joinRoom])
+
+  // Leave room function
+  const leaveRoom = useCallback(() => {
+    if (socketRef.current && currentRoomRef.current) {
+      console.log('🚪 Leaving room:', currentRoomRef.current)
+      socketRef.current.emit('leave-room', currentRoomRef.current)
+      currentRoomRef.current = null
+    }
+  }, [])
 
   // Cleanup function
   const cleanup = useCallback(() => {
     console.log('🧹 Cleaning up WebRTC resources...')
+    
+    // Leave current room
+    leaveRoom()
     
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => {
@@ -235,7 +286,8 @@ export function useWebRTC({
     setConnectionState('new')
     setRemoteUsers([])
     setSocketConnected(false)
-  }, [])
+    currentRoomRef.current = null
+  }, [leaveRoom])
 
   // Initialize Socket.IO when roomId changes
   useEffect(() => {
@@ -243,6 +295,13 @@ export function useWebRTC({
       initializeSocket()
     }
   }, [roomId, initializeSocket])
+
+  // Join room when socket connects or roomId changes
+  useEffect(() => {
+    if (socketConnected && roomId) {
+      joinRoom(roomId)
+    }
+  }, [socketConnected, roomId, joinRoom])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -258,5 +317,6 @@ export function useWebRTC({
     socketConnected,
     startCall,
     cleanup,
+    leaveRoom,
   }
 } 
