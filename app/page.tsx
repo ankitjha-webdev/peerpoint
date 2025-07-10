@@ -1,14 +1,15 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Video, VideoOff, Mic, MicOff, PhoneOff, Copy, Users, Sparkles, AlertCircle } from "lucide-react"
+import { Video, VideoOff, Mic, MicOff, PhoneOff, Copy, Users, Sparkles, AlertCircle, X, Link2 } from "lucide-react"
 import { useWebRTC } from "@/hooks/use-webrtc"
 import { useToast } from "@/hooks/use-toast"
 import { Howl } from 'howler'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 export default function PeerCallApp() {
   const [isInCall, setIsInCall] = useState(false)
@@ -19,6 +20,11 @@ export default function PeerCallApp() {
   const [error, setError] = useState<string | null>(null)
   const [roomFull, setRoomFull] = useState(false)
   const [lastFullRoomId, setLastFullRoomId] = useState<string | null>(null)
+  const [showControls, setShowControls] = useState(true)
+  const controlsTimeout = useRef<NodeJS.Timeout | null>(null)
+  const [showSharePopup, setShowSharePopup] = useState(false)
+  const shareTimeout = useRef<NodeJS.Timeout | null>(null)
+  const [hasLocalStream, setHasLocalStream] = useState(false)
 
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
@@ -98,11 +104,12 @@ export default function PeerCallApp() {
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream
       }
-
+      setHasLocalStream(true)
       return stream
     } catch (error) {
       console.error("Error accessing media devices:", error)
       setError("Failed to access camera/microphone. Please check permissions.")
+      setHasLocalStream(false)
       return null
     }
   }
@@ -160,6 +167,7 @@ export default function PeerCallApp() {
     setIsInCall(false)
     setRoomId("")
     setError(null)
+    setHasLocalStream(false)
     playSound('/leave.mp3')
   }
 
@@ -184,6 +192,25 @@ export default function PeerCallApp() {
       }
     }
   }
+
+  // Show controls on user interaction, hide after 3s
+  const triggerControls = useCallback(() => {
+    setShowControls(true)
+    if (controlsTimeout.current) clearTimeout(controlsTimeout.current)
+    controlsTimeout.current = setTimeout(() => setShowControls(false), 3000)
+  }, [])
+
+  // Show share popup when call starts
+  useEffect(() => {
+    if (isInCall && roomId) {
+      setShowSharePopup(true)
+      if (shareTimeout.current) clearTimeout(shareTimeout.current)
+      shareTimeout.current = setTimeout(() => setShowSharePopup(false), 8000)
+    }
+    return () => {
+      if (shareTimeout.current) clearTimeout(shareTimeout.current)
+    }
+  }, [isInCall, roomId])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -231,6 +258,42 @@ export default function PeerCallApp() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isInCall, toggleAudio, toggleVideo])
+
+  // Show controls on tap/click/move
+  useEffect(() => {
+    if (!isInCall) return
+    const show = () => triggerControls()
+    window.addEventListener('mousemove', show)
+    window.addEventListener('touchstart', show)
+    window.addEventListener('keydown', show)
+    return () => {
+      window.removeEventListener('mousemove', show)
+      window.removeEventListener('touchstart', show)
+      window.removeEventListener('keydown', show)
+      if (controlsTimeout.current) clearTimeout(controlsTimeout.current)
+    }
+  }, [isInCall, triggerControls])
+
+  // Ensure local video element always gets the stream after mount/remount
+  useEffect(() => {
+    if (hasLocalStream && localVideoRef.current && localStreamRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current
+    }
+  }, [hasLocalStream, localVideoRef])
+
+  const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null
+
+  // Auto-join if roomId is present in URL
+  useEffect(() => {
+    if (!isInCall && searchParams) {
+      const urlRoomId = searchParams.get('roomId')?.toUpperCase()
+      if (urlRoomId && urlRoomId !== roomId) {
+        setRoomId(urlRoomId)
+        joinCall()
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   if (!isInCall) {
     return (
@@ -297,143 +360,122 @@ export default function PeerCallApp() {
     )
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 bg-black/20 backdrop-blur-sm">
-        <div className="flex items-center space-x-3">
-          <Badge 
-            variant="secondary" 
-            className={`${
-              socketConnected 
-                ? "bg-green-500/20 text-green-400 border-green-500/30" 
-                : "bg-red-500/20 text-red-400 border-red-500/30"
-            }`}
-          >
-            <div className={`w-2 h-2 rounded-full mr-2 animate-pulse ${
-              socketConnected ? "bg-green-400" : "bg-red-400"
-            }`}></div>
-            {socketConnected ? "Socket Connected" : "Socket Disconnected"}
-          </Badge>
-          <Badge 
-            variant="secondary" 
-            className={`${
-              connectionState === "connected" 
-                ? "bg-green-500/20 text-green-400 border-green-500/30" 
-                : "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
-            }`}
-          >
-            <div className={`w-2 h-2 rounded-full mr-2 animate-pulse ${
-              connectionState === "connected" ? "bg-green-400" : "bg-yellow-400"
-            }`}></div>
-            {connectionState === "connected" ? "Peer Connected" : 
-             connectionState === "connecting" ? "Connecting..." :
-             connectionState === "new" ? "Initializing..." : connectionState}
-          </Badge>
-          {roomId && (
-            <div className="flex items-center space-x-2">
-              <span className="text-white/70 text-sm">Room:</span>
-              <Badge variant="outline" className="text-white border-white/30">
-                {roomId}
-              </Badge>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={copyRoomId}
-                className="h-6 w-6 p-0 text-white/70 hover:text-white"
-              >
-                <Copy className="w-3 h-3" />
-              </Button>
-            </div>
-          )}
-          {remoteUsers.length > 0 && (
-            <Badge variant="outline" className="text-white border-white/30">
-              <Users className="w-3 h-3 mr-1" />
-              {remoteUsers.length} peer{remoteUsers.length > 1 ? 's' : ''}
-            </Badge>
-          )}
-        </div>
-      </div>
-
-      {/* Error Display */}
-      {error && (
-        <div className="mx-4 mt-2 p-3 bg-red-500/20 border border-red-500/30 rounded-lg flex items-center space-x-2">
-          <AlertCircle className="w-4 h-4 text-red-400" />
-          <span className="text-red-400 text-sm">{error}</span>
-        </div>
-      )}
-
-      {/* Video Area */}
-      <div className="flex-1 relative p-4">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-full">
-          {/* Remote Video */}
-          <div className="relative bg-gray-800 rounded-2xl overflow-hidden shadow-2xl">
-            <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
-            {!isConnected && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-purple-900/50 to-blue-900/50 backdrop-blur-sm">
-                <div className="text-center">
-                  <div className="w-16 h-16 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Users className="w-8 h-8 text-white/70" />
-                  </div>
-                  <p className="text-white/70">Waiting for peer to join...</p>
-                  <p className="text-white/50 text-sm mt-2">Share the room ID with someone to start talking</p>
-                </div>
-              </div>
-            )}
-            <div className="absolute bottom-4 left-4">
-              <Badge className="bg-black/50 text-white border-white/20">Remote</Badge>
-            </div>
+  if (isInCall) {
+    const shareUrl = typeof window !== 'undefined' && roomId ? `${window.location.origin}/?roomId=${roomId}` : ''
+    return (
+      <div className="min-h-screen bg-black flex flex-col relative overflow-hidden">
+        {/* Share Link Popup */}
+        {showSharePopup && shareUrl && (
+          <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-50 bg-white text-black rounded-xl shadow-lg px-6 py-4 flex items-center space-x-3 border border-gray-200 animate-fade-in">
+            <Link2 className="w-5 h-5 text-purple-600" />
+            <span className="font-medium text-sm truncate max-w-[120px] sm:max-w-xs">{shareUrl}</span>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="px-2 py-1 text-xs"
+              onClick={() => {
+                navigator.clipboard.writeText(shareUrl)
+                toast({ title: "Link copied!", description: "Share this link to invite someone." })
+              }}
+            >
+              Copy
+            </Button>
+            {/* Mobile Share Button */}
+            <Button
+              size="sm"
+              variant="outline"
+              className="px-2 py-1 text-xs hidden sm:inline-flex"
+              onClick={async () => {
+                if (navigator.share) {
+                  try {
+                    await navigator.share({
+                      title: 'Join my PeerPoint call',
+                      text: 'Join my PeerPoint call!',
+                      url: shareUrl,
+                    })
+                    toast({ title: "Shared!", description: "Link shared successfully." })
+                  } catch (err) {
+                    toast({ title: "Share cancelled", description: "You cancelled sharing." })
+                  }
+                } else {
+                  navigator.clipboard.writeText(shareUrl)
+                  toast({ title: "Link copied!", description: "Share this link to invite someone." })
+                }
+              }}
+            >
+              Share
+            </Button>
+            <button
+              className="ml-2 p-1 rounded hover:bg-gray-100"
+              onClick={() => setShowSharePopup(false)}
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
+        )}
+        {/* Remote Video Fullscreen */}
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover z-0 bg-black"
+        />
 
-          {/* Local Video */}
-          <div className="relative bg-gray-800 rounded-2xl overflow-hidden shadow-2xl">
-            <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
-            {!isVideoEnabled && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
-                <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center">
-                  <VideoOff className="w-8 h-8 text-gray-400" />
-                </div>
-              </div>
-            )}
-            <div className="absolute bottom-4 left-4">
-              <Badge className="bg-black/50 text-white border-white/20">You</Badge>
-            </div>
+        {/* Floating Local Video PiP */}
+        {hasLocalStream && (
+          <div className="absolute bottom-4 right-4 w-28 h-40 sm:w-36 sm:h-52 rounded-xl shadow-lg border border-white/20 overflow-hidden z-20 bg-black/80 flex items-center justify-center">
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover scale-x-[-1] rounded-xl"
+            />
+          </div>
+        )}
+
+        {/* Controls - auto-hide */}
+        <div
+          className={`absolute bottom-0 left-0 w-full flex items-center justify-center pb-8 z-30 transition-opacity duration-500 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        >
+          <div className="flex items-center space-x-4 bg-black/60 rounded-2xl px-6 py-4 shadow-xl backdrop-blur-md">
+            <Button
+              onClick={toggleAudio}
+              size="lg"
+              variant={isAudioEnabled ? "secondary" : "destructive"}
+              className="w-14 h-14 rounded-full"
+            >
+              {isAudioEnabled ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
+            </Button>
+            <Button
+              onClick={toggleVideo}
+              size="lg"
+              variant={isVideoEnabled ? "secondary" : "destructive"}
+              className="w-14 h-14 rounded-full"
+            >
+              {isVideoEnabled ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}
+            </Button>
+            <Button
+              onClick={endCall}
+              size="lg"
+              variant="destructive"
+              className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600"
+            >
+              <PhoneOff className="w-6 h-6" />
+            </Button>
           </div>
         </div>
+
+        {/* Tap to show controls on mobile */}
+        <div
+          className="absolute inset-0 z-10"
+          onClick={triggerControls}
+          onTouchStart={triggerControls}
+          style={{ cursor: 'pointer' }}
+        />
       </div>
-
-      {/* Controls */}
-      <div className="p-6 bg-black/20 backdrop-blur-sm">
-        <div className="flex items-center justify-center space-x-4">
-          <Button
-            onClick={toggleAudio}
-            size="lg"
-            variant={isAudioEnabled ? "secondary" : "destructive"}
-            className="w-14 h-14 rounded-full"
-          >
-            {isAudioEnabled ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
-          </Button>
-
-          <Button
-            onClick={toggleVideo}
-            size="lg"
-            variant={isVideoEnabled ? "secondary" : "destructive"}
-            className="w-14 h-14 rounded-full"
-          >
-            {isVideoEnabled ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}
-          </Button>
-
-          <Button
-            onClick={endCall}
-            size="lg"
-            variant="destructive"
-            className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600"
-          >
-            <PhoneOff className="w-6 h-6" />
-          </Button>
-        </div>
-      </div>
-    </div>
-  )
+    )
+  }
 }
 
