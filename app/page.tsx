@@ -387,7 +387,7 @@ export default function PeerCallApp() {
 
           {/* Local Video */}
           <div className="relative bg-gray-800 rounded-2xl overflow-hidden shadow-2xl">
-            <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+            <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
             {!isVideoEnabled && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-900">
                 <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center">

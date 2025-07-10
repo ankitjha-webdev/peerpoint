@@ -163,6 +163,9 @@ dependencies:
     version: 3.25.74
 
 devDependencies:
+  '@types/howler':
+    specifier: ^2.2.12
+    version: 2.2.12
   '@types/node':
     specifier: ^22
     version: 22.16.0
@@ -1835,6 +1838,10 @@ packages:
   /@types/d3-timer@3.0.2:
     resolution: {integrity: sha512-Ps3T8E8dZDam6fUyNiMkekK3XUsaUEik+idO9/YjPtfj2qruF8tFBXS7XhtE4iIXBLxhmLjP3SXpLhVf21I9Lw==}
     dev: false
+
+  /@types/howler@2.2.12:
+    resolution: {integrity: sha512-hy769UICzOSdK0Kn1FBk4gN+lswcj1EKRkmiDtMkUGvFfYJzgaDXmVXkSShS2m89ERAatGIPnTUlp2HhfkVo5g==}
+    dev: true
 
   /@types/node@22.16.0:
     resolution: {integrity: sha512-B2egV9wALML1JCpv3VQoQ+yesQKAmNMBIAY7OteVrikcOcAkWm+dGL6qpeCktPjAv6N1JLnhbNiqS35UpFyBsQ==}
